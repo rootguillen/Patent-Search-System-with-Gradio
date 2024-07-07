@@ -1,0 +1,291 @@
+# install libraries
+!pip -q install langchain chromadb langchain-chroma sentence-transformers
+
+# Copy an US patent application file from USPTO (Patent application data in January 21, 2021)
+!wget  https://bulkdata.uspto.gov/data/patent/application/redbook/fulltext/2021/ipa210121.zip
+!unzip "ipa210121.zip"
+
+INPUT_FILENAME = "ipa210121.xml" # extracted file
+
+# Define a function to split the combined XML file into separate XML files
+
+import re
+
+def split_xml(input_filename, pat_end_tag, seq_end_tag):
+    try:
+        # Read the XML file and store its content
+        with open(input_filename, 'r', encoding='utf-8') as input_file:
+            xml_data = input_file.read()
+
+        # Define the regular expression pattern
+        # to match end tag of patent application xml OR end tag of sequence xml
+        pattern = f'{pat_end_tag}|{seq_end_tag}'
+
+        # Split the content based on the pattern
+        splited_xmls = re.split(pattern, xml_data)
+
+        return splited_xmls
+
+    except Exception as e:
+        print("Error:", str(e))
+# Split combined xml into PATENT-xmls and SEQUENCE-xmls
+
+input_filename = INPUT_FILENAME
+pat_end_tag = '</us-patent-application>'
+seq_end_tag = '</sequence-cwu>'
+# sequence xml starts with
+# '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE sequence-cwu SYSTEM "'
+# patent application xml starts with
+# '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE us-patent-application'
+
+original_splited_xmls = split_xml(input_filename, pat_end_tag, seq_end_tag)
+
+del original_splited_xmls[-1] # delete the last xml because it is only '\n'
+
+
+pat_splited_xmls = [] # list of splited patent-xmls
+seq_splited_xmls = [] # list of splited sequence-xmls
+
+for i, xml in enumerate(original_splited_xmls):
+  if xml[:100].count("sequence-cwu") >= 1: # sequence xml
+    seq_splited_xmls.append(xml)
+  elif xml[:100].count("us-patent-application") >= 1: # patent application xml
+    pat_splited_xmls.append(xml)
+  else:  # Output error message
+    print("There is other types of xml files rather than sequence or application in index ", i)
+    print(xml)
+
+# CAUTION: the end_tag was deleted when splited
+# So need to add end_tag to each separated xml
+
+for i in range(len(pat_splited_xmls)):
+  pat_splited_xmls[i] += pat_end_tag
+
+print("Total number of the splited XMLs: ", len(original_splited_xmls))
+print("patent application xmls: ", len(pat_splited_xmls), " / sequence xmls: ", len(seq_splited_xmls))
+
+# Print out splited PATENT application xmls
+
+pat_splited_xmls_count = len(pat_splited_xmls)
+
+# Print out the splited parts.
+# Print only front 20 and back 20 if the number of splited part exceeds 40
+# Otherwise print out all the xml files
+
+print("Splited PATENT application xmls:")
+if pat_splited_xmls_count <= 40:
+  for i in range(pat_splited_xmls_count):
+    print("\n\nSplited part ", i)
+    print(pat_splited_xmls[i][:100])
+    print("...")
+    print(pat_splited_xmls[i][-100:])
+else: # pat_splited_xmls_count > 40
+  for i in range(20):
+    print("\n\nSplited part ", i)
+    print(pat_splited_xmls[i][:100])
+    print("...")
+    print(pat_splited_xmls[i][-100:])
+  for i in range(20):
+    print("\n\nSplited part ", pat_splited_xmls_count - 19 + i)
+    print(pat_splited_xmls[pat_splited_xmls_count - 20 + i][:100])
+    print("...")
+    print(pat_splited_xmls[pat_splited_xmls_count - 20 + i][-100:])
+
+# Print out splited SEQUENCE xmls
+
+seq_splited_xmls_count = len(seq_splited_xmls)
+
+# Print out the splited parts.
+# Print only front 2 and back 2 if the number of splited part exceeds 4
+# Otherwise print out all the xml files
+
+print("Splited SEQUENCE xmls:")
+if seq_splited_xmls_count <= 4:
+  for i in range(seq_splited_xmls_count):
+    print("\n\nSplited part ", i)
+    print(seq_splited_xmls[i][:100])
+    print("...")
+    print(seq_splited_xmls[i][-100:])
+else: # seq_splited_xmls_count > 4
+  for i in range(2):
+    print("\n\nSplited part ", i)
+    print(seq_splited_xmls[i][:100])
+    print("...")
+    print(seq_splited_xmls[i][-100:])
+  for i in range(2):
+    print("\n\nSplited part ", seq_splited_xmls_count - 1 + i)
+    print(seq_splited_xmls[seq_splited_xmls_count - 2 + i][:100])
+    print("...")
+    print(seq_splited_xmls[seq_splited_xmls_count - 2 + i][-100:])
+
+
+# define a function to extract infos from each splited XML files
+# infos such as application, publication, title, abstract, claims
+
+import xml.etree.ElementTree as ET
+
+def extract_info_from_one_xml(input_xml):
+  try:
+    root = ET.fromstring(input_xml.lstrip('\n'))
+    # The file must start with '<?xml version="1.0" encoding="UTF-8"?>'.
+    # An error occurs if page_content starts with '\n'.
+    # Therefore, delete the first newline character ('\n').
+
+    # Continue processing the parsed XML as needed
+  except ET.ParseError as e:
+    # Handle the XML parsing error
+    print("XML Parsing Error:", e)
+    # Optionally, log the error or take corrective actions
+
+  # Extract <doc-number> from <publication-reference>
+  publication_reference = root.find(".//publication-reference")
+  doc_number_publication = publication_reference.find(".//doc-number").text
+  doc_date_publication = publication_reference.find(".//date").text
+
+  # Extract <doc-number> from <application-reference>
+  application_reference = root.find(".//application-reference")
+  doc_number_application = application_reference.find(".//doc-number").text
+  doc_date_application = application_reference.find(".//date").text
+
+  # Extract <invention-title>
+  invention_title = root.find(".//invention-title").text
+
+  # Extract <abstract>
+  abstract_element = root.find(".//abstract")
+  abstract = ET.tostring(abstract_element, encoding="utf-8", method="text").decode("utf-8") if abstract_element is not None else ""
+
+  # Extract <claims>
+  # Document's page_content's type of Chroma DB is str
+  claims = ""
+  xml_claims = root.find('claims')
+  for claim in xml_claims.findall('claim'):
+      claim_text = ''.join(claim.find('claim-text').itertext())
+      claim_text = claim_text.strip('\n')
+      claims += claim_text
+
+  return doc_number_application, doc_date_application, \
+         doc_number_publication, doc_date_publication, \
+         invention_title, abstract, claims
+
+
+
+# Make langchain Documents with extracted patent title, abstract, pub_num, app_num
+# Make three different Documents with title, abstract, and claims
+# Target format is a list like this:
+# [Document(page_content='Combination Digging Device and Head Rest', metadata={'application_number': '16684704', 'application_date': '20191115'}),
+#  Document(page_content='WEED REMOVER', metadata={'application_number': '16922605', 'application_date': '20200707'}), ...]
+
+from langchain.schema import document
+
+# Create a title documents with patent titles
+title_documents = []
+abstract_documents = []
+claims_documents = []
+patent_documents = []
+
+# store SOME XMLs in the Document for faster execution of this pilot program
+# The splited XMLs are stored in pat_splited_xmls
+for i, pat_splited_xml in enumerate(pat_splited_xmls):
+  if i > 1000:
+    break
+  app_num, app_date, pub_num, pub_date, title, abstract, claims = extract_info_from_one_xml(pat_splited_xml)
+
+  new_title_document = document.Document(page_content=title, metadata={'application_number': app_num, 'application_date': app_date})
+  title_documents.append(new_title_document)
+  new_abstract_document = document.Document(page_content=abstract, metadata={'application_number': app_num, 'application_date': app_date})
+  abstract_documents.append(new_abstract_document)
+  new_claims_document = document.Document(page_content=claims, metadata={'application_number': app_num, 'application_date': app_date})
+  claims_documents.append(new_claims_document)
+
+  new_patent_document = document.Document(page_content=pub_date, metadata={'application_number': app_num, 'application_date': app_date, 'title': title, 'abstract': abstract, 'claims': claims})
+  patent_documents.append(new_patent_document)
+
+
+# load text embedding models
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+#embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2") # embedding dimension 384
+embedding_function = HuggingFaceEmbeddings(model_name="llmrails/ember-v1") # embedding dimension 1024
+
+from langchain_chroma import Chroma
+
+# Create TITLE Chroma DB
+title_db = Chroma.from_documents(
+                           collection_name = "US_patent_application_TITLE_DB",
+                           documents = title_documents,
+                           embedding = embedding_function,
+                          )
+# Create ABSTRACT Chroma DB
+abstract_db = Chroma.from_documents(
+                           collection_name = "US_patent_application_ABSTRACT_DB",
+                           documents = abstract_documents,
+                           embedding = embedding_function,
+                          )
+# Create CLAIMS Chroma DB
+claims_db = Chroma.from_documents(
+                           collection_name = "US_patent_application_CLAIMS_DB",
+                           documents = claims_documents,
+                           embedding = embedding_function,
+                          )
+##upd1
+patent_db = Chroma.from_documents(
+                            collection_name = "US_patent_application_PATENTS_DB",
+                            documents = patent_documents,
+                            embedding = embedding_function,
+)
+
+#this is the new part: adding user interface
+import gradio as gr
+# For query for text
+# https://www.gradio.app/guides/quickstart
+
+def greet(query):
+    results = abstract_db.similarity_search_with_score(query, 10)
+    return results
+
+demo = gr.Interface(
+    fn=greet,
+    inputs=gr.Textbox(lines=2, placeholder="input query text"),
+    outputs="text"
+)
+
+demo.launch()
+
+! pip install gradio
+! pip install tabulate
+import gradio as gr
+from tabulate import tabulate
+
+def patent(query):
+    results = patent_db.similarity_search_with_score(query, 10)
+
+    # Prepare the table data from the results
+    table_data = []
+    for result in results:
+        document = result[0]
+        score = result[1]
+        application_number = document.metadata['application_number']
+        application_date = document.metadata['application_date']
+        title = document.metadata['title']
+        abstract = document.metadata['abstract']
+        claims = document.metadata['claims']
+
+        table_data.append((application_number, application_date, title, abstract, claims))
+
+    headers = ["Application Number", "Application Date", "Title", "Abstract", "Claims", 'Score']
+
+    formatted_table = tabulate(table_data, headers=headers, tablefmt="html")
+
+    return formatted_table
+
+demo = gr.Interface(
+    fn=patent,
+    inputs=gr.Textbox(lines=1, placeholder="Input query text"),
+    outputs="html"
+)
+
+demo.launch(debug=True)
+
+
+#all rights go to Mr. Han Gyudong, Counsellor of WIPO
+#colab link: https://colab.research.google.com/drive/1qYU_tamJT7iAkIKyEqmPoYo1i3D3egdJ?usp=sharing
